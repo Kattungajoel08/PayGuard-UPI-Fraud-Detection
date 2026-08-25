@@ -144,7 +144,11 @@ def compute_risk(amount, user):
     factors = [
         f"Combined risk score: {score:.1%}.",
         f"Recent average transaction: ₹{avg:,.0f}.",
-        f"Recent transaction count considered: {freq}.",
+        (
+            "Recent transaction history: No previous transactions available."
+            if freq == 0
+            else f"Recent transaction history: {freq} previous transactions considered."
+        ),
     ]
     if amount > 2 * avg:
         factors.append("Amount is more than 2× the recent average, adding a behavioral risk boost.")
