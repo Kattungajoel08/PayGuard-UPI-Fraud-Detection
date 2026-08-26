@@ -13,7 +13,8 @@ from services.risk_engine import compute_risk
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "fraud.db")
-
+DEMO_USERNAME = "demo_user"
+DEMO_PASSWORD = "PayGuard@123"
 DEMO_PIN = "123456"
 DEMO_PET = "tommy"
 DEMO_CARD = "123"
@@ -79,12 +80,14 @@ def read_transactions():
 
 
 def save_transaction(amount, receiver, result, status, reason, auth_method="PIN"):
-    ensure_db()
+    risk = result.get("risk", "Unknown")
+    score = result.get("risk_score", 0)
+
+    full_reason = reason
+
     conn = sqlite3.connect(DB_PATH)
-    risk = result.get("risk", "UNKNOWN")
-    score = float(result.get("risk_score", 0.0))
-    full_reason = f"{reason} | Authentication: {auth_method}"
-    conn.execute(
+
+    cursor = conn.execute(
         """
         INSERT INTO transactions
         (sender, receiver, amount, fraud, risk, drift, risk_score, time, status, reason)
@@ -103,10 +106,88 @@ def save_transaction(amount, receiver, result, status, reason, auth_method="PIN"
             full_reason,
         ),
     )
+
+    transaction_id = cursor.lastrowid
+
     conn.commit()
     conn.close()
 
+    return transaction_id
 
+def logout():
+    """Log out the current demo user and clear the active payment flow."""
+    reset_flow()
+    st.session_state.pop("logged_in", None)
+    st.session_state.pop("username", None)
+
+
+def show_login():
+    """Render the PayGuard demo login page."""
+
+    st.markdown(
+        """
+        <div class="hero">
+            <h1>🛡️ PayGuard</h1>
+            <p>Secure UPI Fraud Detection & Risk-Based Authentication</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    left, center, right = st.columns([1, 1.2, 1])
+
+    with center:
+        st.subheader("🔐 Sign in to PayGuard")
+        st.caption("Use the public demo account to explore the application.")
+
+        username = st.text_input(
+            "Username",
+            placeholder="Enter demo username"
+        )
+
+        password = st.text_input(
+            "Password",
+            type="password",
+            placeholder="Enter demo password"
+        )
+
+        if st.button(
+            "Login",
+            type="primary",
+            use_container_width=True
+        ):
+            if (
+                username.strip() == DEMO_USERNAME
+                and password == DEMO_PASSWORD
+            ):
+                st.session_state.logged_in = True
+                st.session_state.username = DEMO_USERNAME
+
+                st.success(
+                    "Login successful! Welcome to PayGuard."
+                )
+
+                time.sleep(0.5)
+                st.rerun()
+
+            else:
+                st.error("Invalid username or password.")
+
+        with st.expander("Demo credentials"):
+            st.write(
+                "These credentials are for this portfolio "
+                "demonstration only."
+            )
+
+            st.code(
+                "Username: demo_user\n"
+                "Password: PayGuard@123"
+            )
+
+        st.info(
+            "This is a simulated payment application. "
+            "No real banking credentials or real UPI payments are used."
+        )
 def reset_flow():
     for key in [
         "stage", "amount", "receiver", "risk_result", "auth_method",
@@ -141,7 +222,8 @@ def begin_otp(stage, reset_attempts=True):
 
 def finish_transaction(status, reason, auth_method):
     result = st.session_state.risk_result
-    save_transaction(
+
+    transaction_id = save_transaction(
         st.session_state.amount,
         st.session_state.receiver,
         result,
@@ -149,9 +231,11 @@ def finish_transaction(status, reason, auth_method):
         reason,
         auth_method,
     )
+
     st.session_state.completed = True
     st.session_state.final_status = status
     st.session_state.final_reason = reason
+    st.session_state.transaction_id = transaction_id
     st.session_state.stage = "complete"
 
 
@@ -170,9 +254,32 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+# ---------------------------------------------------------------------------
+# Authentication gate
+# ---------------------------------------------------------------------------
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if not st.session_state.logged_in:
+    show_login()
+    st.stop()
 
 st.sidebar.title("🛡️ PayGuard")
 st.sidebar.caption("UPI Fraud Detection Demo")
+
+st.sidebar.success(
+    f"Logged in as: {st.session_state.get('username', DEMO_USERNAME)}"
+)
+
+if st.sidebar.button(
+    "Logout",
+    use_container_width=True
+):
+    logout()
+    st.rerun()
+
+st.sidebar.divider()
 page = st.sidebar.radio(
     "Navigation",
     ["Overview", "Fraud Prediction", "Live Dashboard", "Model Analysis"],
@@ -234,10 +341,383 @@ elif page == "Fraud Prediction":
             status = st.session_state.final_status
             reason = st.session_state.final_reason
             if status == "Success":
-                st.success("✅ Transaction completed successfully")
+                # Payment Success Screen
+                transaction_id = st.session_state.get(
+                    "transaction_id",
+                    "N/A"
+                )
+                st.markdown(
+                    """
+                    <style>
+                    .payment-success {
+                        text-align: center;
+                        padding: 35px 20px;
+                        border-radius: 20px;
+                        background: linear-gradient(180deg, #f0fff7 0%, #ffffff 100%);
+                        border: 1px solid #d8f5e5;
+                        margin-top: 20px;
+                    }
+
+                    .success-icon {
+                        width: 80px;
+                        height: 80px;
+                        margin: 0 auto 18px auto;
+                        border-radius: 50%;
+                        background: #20c77a;
+                        color: white;
+                        font-size: 48px;
+                        line-height: 80px;
+                        font-weight: bold;
+                        box-shadow: 0 8px 25px rgba(32, 199, 122, 0.25);
+                    }
+
+                    .success-title {
+                        font-size: 30px;
+                        font-weight: 700;
+                        color: #1f2937;
+                        margin-bottom: 8px;
+                    }
+
+                    .success-subtitle {
+                        font-size: 16px;
+                        color: #6b7280;
+                        margin-bottom: 25px;
+                    }
+
+                    .payment-card {
+                        max-width: 500px;
+                        margin: 0 auto;
+                        padding: 22px;
+                        background: white;
+                        border-radius: 16px;
+                        border: 1px solid #e5e7eb;
+                        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.06);
+                    }
+
+                    .merchant-name {
+                        font-size: 21px;
+                        font-weight: 650;
+                        color: #111827;
+                        margin-bottom: 15px;
+                    }
+
+                    .amount {
+                        font-size: 34px;
+                        font-weight: 750;
+                        color: #111827;
+                        margin-bottom: 18px;
+                    }
+
+                    .payment-detail {
+                        display: flex;
+                        justify-content: space-between;
+                        padding: 10px 0;
+                        border-bottom: 1px solid #f0f0f0;
+                        font-size: 14px;
+                    }
+
+                    .detail-label {
+                        color: #6b7280;
+                    }
+
+                    .detail-value {
+                        color: #111827;
+                        font-weight: 600;
+                    }
+                    </style>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+                st.html(
+                    f"""
+                    <style>
+                    .payment-success {{
+                        text-align: center;
+                        padding: 35px 20px;
+                        border-radius: 20px;
+                        background: linear-gradient(
+                            180deg,
+                            #f0fff7 0%,
+                            #ffffff 100%
+                        );
+                        border: 1px solid #d8f5e5;
+                        margin-top: 20px;
+                        font-family: Arial, sans-serif;
+                    }}
+
+                    .success-icon {{
+                        width: 85px;
+                        height: 85px;
+                        margin: 0 auto 18px auto;
+                        border-radius: 50%;
+                        background: #20c77a;
+                        color: white;
+                        font-size: 52px;
+                        line-height: 85px;
+                        font-weight: bold;
+                        box-shadow: 0 8px 25px rgba(32, 199, 122, 0.25);
+                    }}
+
+                    .success-title {{
+                        font-size: 30px;
+                        font-weight: 700;
+                        color: #1f2937;
+                        margin-bottom: 8px;
+                    }}
+
+                    .success-subtitle {{
+                        font-size: 16px;
+                        color: #6b7280;
+                        margin-bottom: 25px;
+                    }}
+
+                    .payment-card {{
+                        max-width: 520px;
+                        margin: 0 auto;
+                        padding: 25px;
+                        background: white;
+                        border-radius: 18px;
+                        border: 1px solid #e5e7eb;
+                        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.06);
+                    }}
+
+                    .merchant-name {{
+                        font-size: 21px;
+                        font-weight: 650;
+                        color: #111827;
+                        margin-bottom: 12px;
+                    }}
+
+                    .amount {{
+                        font-size: 36px;
+                        font-weight: 750;
+                        color: #111827;
+                        margin-bottom: 20px;
+                    }}
+
+                    .payment-detail {{
+                        display: flex;
+                        justify-content: space-between;
+                        padding: 11px 0;
+                        border-bottom: 1px solid #f0f0f0;
+                        font-size: 14px;
+                    }}
+
+                    .detail-label {{
+                        color: #6b7280;
+                    }}
+
+                    .detail-value {{
+                        color: #111827;
+                        font-weight: 600;
+                    }}
+                    </style>
+
+                    <div class="payment-success">
+
+                        <div class="success-icon">
+                            ✓
+                        </div>
+
+                        <div class="success-title">
+                            Payment Successful
+                        </div>
+
+                        <div class="success-subtitle">
+                            Your payment has been completed successfully
+                        </div>
+
+                        <div class="payment-card">
+
+                            <div class="merchant-name">
+                                🏪 {st.session_state.receiver}
+                            </div>
+
+                            <div class="amount">
+                                ₹{st.session_state.amount:,.2f}
+                            </div>
+
+                            <div class="payment-detail">
+                                <span class="detail-label">
+                                    Status
+                                </span>
+                                <span class="detail-value">
+                                    ✓ Successful
+                                </span>
+                            </div>
+
+                            <div class="payment-detail">
+                                <span class="detail-label">
+                                    Payment Method
+                                </span>
+                                <span class="detail-value">
+                                    UPI
+                                </span>
+                            </div>
+
+                            <div class="payment-detail">
+                                <span class="detail-label">
+                                    Transaction ID
+                                </span>
+                                <span class="detail-value">
+                                    PG{int(transaction_id):06d}
+                                </span>
+                            </div>
+
+                        </div>
+
+                    </div>
+                    """
+                )
             else:
-                st.error("🚫 Transaction blocked / flagged as fraud")
-            st.write(f"**Reason:** {reason}")
+                # Transaction Failed Screen
+                transaction_id = st.session_state.get(
+                        "transaction_id",
+                        "N/A"
+                )
+
+                st.html(
+                    f"""
+                    <style>
+                    .payment-failed {{
+                        text-align: center;
+                        padding: 35px 20px;
+                        border-radius: 20px;
+                        background: linear-gradient(
+                            180deg,
+                            #fff5f5 0%,
+                            #ffffff 100%
+                        );
+                        border: 1px solid #ffd9d9;
+                        margin-top: 20px;
+                        font-family: Arial, sans-serif;
+                    }}
+
+                    .failed-icon {{
+                        width: 85px;
+                        height: 85px;
+                        margin: 0 auto 18px auto;
+                        border-radius: 50%;
+                        background: #ef4444;
+                        color: white;
+                        font-size: 48px;
+                        line-height: 85px;
+                        font-weight: bold;
+                        box-shadow: 0 8px 25px rgba(239, 68, 68, 0.25);
+                    }}
+
+                    .failed-title {{
+                        font-size: 30px;
+                        font-weight: 700;
+                        color: #1f2937;
+                        margin-bottom: 8px;
+                    }}
+
+                    .failed-subtitle {{
+                        font-size: 16px;
+                        color: #6b7280;
+                        margin-bottom: 25px;
+                    }}
+
+                    .failed-card {{
+                        max-width: 520px;
+                        margin: 0 auto;
+                        padding: 25px;
+                        background: white;
+                        border-radius: 18px;
+                        border: 1px solid #e5e7eb;
+                        box-shadow: 0 5px 20px rgba(0, 0, 0, 0.06);
+                    }}
+
+                    .merchant-name {{
+                        font-size: 21px;
+                        font-weight: 650;
+                        color: #111827;
+                        margin-bottom: 12px;
+                    }}
+
+                    .amount {{
+                        font-size: 36px;
+                        font-weight: 750;
+                        color: #111827;
+                        margin-bottom: 20px;
+                    }}
+
+                    .payment-detail {{
+                        display: flex;
+                        justify-content: space-between;
+                        padding: 11px 0;
+                        border-bottom: 1px solid #f0f0f0;
+                        font-size: 14px;
+                    }}
+
+                    .detail-label {{
+                        color: #6b7280;
+                    }}
+
+                    .detail-value {{
+                        color: #111827;
+                        font-weight: 600;
+                    }}
+                    </style>
+
+                    <div class="payment-failed">
+
+                        <div class="failed-icon">
+                            ✕
+                        </div>
+
+                        <div class="failed-title">
+                            Transaction Failed
+                        </div>
+
+                        <div class="failed-subtitle">
+                            Your payment could not be completed
+                        </div>
+
+                        <div class="failed-card">
+
+                            <div class="merchant-name">
+                                🏪 {st.session_state.receiver}
+                            </div>
+
+                            <div class="amount">
+                                ₹{st.session_state.amount:,.2f}
+                            </div>
+
+                            <div class="payment-detail">
+                                <span class="detail-label">
+                                    Status
+                                </span>
+                                <span class="detail-value">
+                                    ✕ Failed
+                                </span>
+                            </div>
+
+                            <div class="payment-detail">
+                                <span class="detail-label">
+                                    Payment Method
+                                </span>
+                                <span class="detail-value">
+                                    UPI
+                                </span>
+                            </div>
+
+                            <div class="payment-detail">
+                                <span class="detail-label">
+                                    Transaction ID
+                                </span>
+                                <span class="detail-value">
+                                    PG{int(transaction_id):06d}
+                                </span>
+                            </div>
+
+                        </div>
+
+                    </div>
+                    """
+                )
             st.divider()
             if st.button("Start New Transaction", type="primary"):
                 reset_flow()
